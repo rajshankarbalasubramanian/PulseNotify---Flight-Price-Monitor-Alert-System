@@ -1,0 +1,56 @@
+from celery import shared_task
+import requests
+
+from .models import PriceAlert, NotificationLog
+
+
+@shared_task
+def check_prices():
+    """Runs every 60 s via Celery Beat. Fetches prices, fires notifications."""
+    active_alerts = PriceAlert.objects.filter(status=PriceAlert.Status.ACTIVE)
+    routes = active_alerts.values_list('origin', 'destination').distinct()
+
+    for origin, destination in routes:
+        route = f'{origin}-{destination}'
+        try:
+            response = requests.get(
+                'http://localhost:8000/api/flights/price/',
+                params={'route': route},
+                timeout=5,
+            )
+        except requests.RequestException:
+            continue
+
+        if response.status_code != 200:
+            continue
+
+        current_price = response.json().get('price')
+        if current_price is None:
+            continue
+
+        route_alerts = active_alerts.filter(origin=origin, destination=destination)
+        for alert in route_alerts:
+            if current_price <= float(alert.threshold_price):
+                # .delay() fires asynchronously — check_prices never blocks
+                send_notification.delay(alert.id, current_price)
+
+
+@shared_task
+def send_notification(alert_id, triggered_price):
+    """Async task — writes NotificationLog and marks alert as triggered."""
+    try:
+        alert = PriceAlert.objects.get(id=alert_id)
+    except PriceAlert.DoesNotExist:
+        return
+
+    message = (
+        f'Price alert triggered! {alert.origin}-{alert.destination} '
+        f'is now ₹{triggered_price} — below your threshold of ₹{alert.threshold_price}'
+    )
+    NotificationLog.objects.create(
+        alert=alert,
+        triggered_price=triggered_price,
+        message=message,
+    )
+    alert.status = PriceAlert.Status.TRIGGERED
+    alert.save(update_fields=['status'])
