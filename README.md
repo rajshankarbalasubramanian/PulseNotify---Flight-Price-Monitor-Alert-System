@@ -11,6 +11,17 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python manage.py migrate --settings=pulsenotify.settings.local
 
+## Postman Testing
+
+Due to Postman’s export limitations, the collection was documented manually.  
+Please refer to the uploaded ZIP folder (`postman_scenarios.zip`) which contains:
+
+- Screenshots of all  scenarios
+- Notes on request/response details
+- Verification of expected outcomes
+
+This manual documentation covers the same scope as the required Postman collection.
+
 
 
 ---
